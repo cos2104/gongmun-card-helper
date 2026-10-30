@@ -368,7 +368,7 @@ class MainForm : Form
     readonly SegTabs side = new SegTabs();
     readonly Panel sideView = new Panel();
     readonly Panel sideInfo = new Panel();
-    readonly ToolStripStatusLabel updateLink = new ToolStripStatusLabel { IsLink = true, Visible = false, Alignment = ToolStripItemAlignment.Right };
+    readonly ToolStripStatusLabel updateLink = new ToolStripStatusLabel { IsLink = true, Visible = false, Margin = new Padding(0, 3, 16, 2) };
     Updater.Release pendingUpdate;
     bool updating;
     bool welcomed;
@@ -644,11 +644,12 @@ class MainForm : Form
         split.Panel2.Controls.Add(inner);
 
         var strip = new StatusStrip { BackColor = Bg, SizingGrip = true, Padding = new Padding(10, 0, 10, 0) };
-        status.Spring = true;
-        status.TextAlign = ContentAlignment.MiddleLeft;
-        strip.Items.Add(status);
+        // 새 판 알림은 맨 앞에 둔다(오른쪽 끝에 두면 좁은 창에서 밖으로 밀려 안 보였다)
+        updateLink.LinkColor = Accent;
+        updateLink.Font = new Font(uiFont, FontStyle.Bold);
         updateLink.Click += (s, e) => InstallUpdate();
         strip.Items.Add(updateLink);
+        strip.Items.Add(status);
 
         Controls.Add(split);
         Controls.Add(top);
