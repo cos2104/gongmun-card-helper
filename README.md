@@ -19,7 +19,7 @@ K-에듀파인 **문서관리카드**(WXSClient) 창들을 한 창에 모아 보
 
 ## 설치
 
-[Releases](https://github.com/cos2104/gongmun-card-helper/releases/latest)에서 `공문카드도우미.exe`를 받아 아무 폴더에 두고 실행합니다.
+[Releases](https://github.com/cos2104/gongmun-card-helper/releases/latest)에서 `gongmun-card-helper.exe`를 받아 아무 폴더에 두고 실행합니다(이름은 `공문카드도우미.exe`로 바꿔도 됩니다).
 새 판이 올라오면 앱 아래쪽에 `새 판 … 받기`가 나타나고, 누르면 알아서 바뀝니다.
 
 필요한 것
