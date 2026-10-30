@@ -272,7 +272,8 @@ static class Ieum
     static readonly string Exe = Path.Combine(Dir, "IeumOffice.exe");
     static readonly string Cli = Path.Combine(Dir, "resources", "cli", "genoffice.cjs");
 
-    public static bool Available { get { return File.Exists(Exe) && File.Exists(Cli); } }
+    // GONGMUN_NO_IEUM=1 : 이음오피스가 없는 PC 처럼 시험
+    public static bool Available { get { return Environment.GetEnvironmentVariable("GONGMUN_NO_IEUM") != "1" && File.Exists(Exe) && File.Exists(Cli); } }
 
     // 쪽마다 PNG 를 만들고 그 경로들을 쪽 순서대로 준다(이미 만든 게 있으면 그대로)
     public static List<string> Render(string path, string outDir)

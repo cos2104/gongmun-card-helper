@@ -409,6 +409,7 @@ class PreviewPane : Panel
         UpdateEditButtons();
 
         if (editing && !IsHwp(ext) && Ieum.Available) { OpenInIeum(path); return; }
+        if (editing && MsOffice.Handles(ext)) { OpenInOffice(path); return; }
 
         if (Images.Contains(ext)) { pageView.Show(new[] { path }); Mode(pageView); return; }
 
@@ -428,16 +429,19 @@ class PreviewPane : Panel
             return;
         }
 
-        if (Rendered.Contains(ext))
+        // PDF 는 윈도 기본 기능, 오피스 문서는 깔린 MS 오피스 → PDF → 같은 그리기, 둘 다 안 되면 이음오피스
+        bool winPdf = WinPdf.Available && (ext == ".pdf" || MsOffice.Handles(ext));
+        if (winPdf || Rendered.Contains(ext))
         {
-            if (!Ieum.Available) { Say("이음오피스가 있어야 미리 볼 수 있음\n\n[앱으로 열기]"); return; }
+            if (!winPdf && !Ieum.Available) { Say("이음오피스가 있어야 미리 볼 수 있음\n\n[앱으로 열기]"); return; }
             string outDir = path + ".쪽";
-            Say("쪽 그림 만드는 중…");
+            Say(ext == ".pdf" || !winPdf ? "쪽 그림 만드는 중…" : MsOffice.AppName(ext) + "로 여는 중…");
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 List<string> pages = null;
                 string err = null;
-                try { pages = Ieum.Render(path, outDir); } catch (Exception ex) { err = ex.Message; }
+                try { pages = winPdf ? RenderWin(path, ext, outDir) : Ieum.Render(path, outDir); }
+                catch (Exception ex) { err = ex.Message; Ieum.Log("미리보기 " + Path.GetFileName(path) + " : " + ex.Message); }
                 BeginInvoke((Action)(() =>
                 {
                     if (seq != showSeq) return;
@@ -449,6 +453,18 @@ class PreviewPane : Panel
         }
 
         Say("미리보기 없음\n\n[앱으로 열기]");
+    }
+
+    static List<string> RenderWin(string path, string ext, string outDir)
+    {
+        string pdf = path;
+        if (ext != ".pdf")
+        {
+            Directory.CreateDirectory(outDir);
+            pdf = Path.Combine(outDir, "문서.pdf");
+            if (!File.Exists(pdf) || File.GetLastWriteTimeUtc(pdf) < File.GetLastWriteTimeUtc(path)) MsOffice.ToPdf(path, pdf);
+        }
+        return WinPdf.Render(pdf, outDir, 1400);
     }
 
     bool Hwp22Shown { get { return hwpHost.Visible; } }
@@ -525,6 +541,7 @@ class PreviewPane : Panel
             if (Hwp22Shown) hwp22.SetEdit(true);
             else if (hwpView.Visible) { try { hwpView.SetEditing(true); } catch (Exception ex) { Status("편집 못 함 : " + ex.Message); } }
             else if (Ieum.Available) OpenInIeum(currentPath);
+            else if (MsOffice.Handles(ext)) OpenInOffice(currentPath);
             else { editing = false; UpdateEditButtons(); Say("이음오피스가 있어야 고칠 수 있음\n\n[앱으로 열기]"); }
         }
         else
@@ -571,7 +588,7 @@ class PreviewPane : Panel
                 // 이음오피스에서 고친 것은 이음오피스가 원래 파일(임시 폴더)에 저장한다 → 그 파일을 저장 폴더로 복사
                 string target = Unique(Path.Combine(folder, SafeName(currentName)));
                 File.Copy(currentPath, target);
-                Status("저장 : " + Path.GetFileName(target) + " (이음오피스에서 먼저 저장)");
+                Status("저장 : " + Path.GetFileName(target) + " (" + (Ieum.Available ? "이음오피스" : MsOffice.AppName(Path.GetExtension(currentPath))) + "에서 먼저 저장)");
             }
         }
         catch (Exception ex) { Status("저장 못 함 : " + ex.Message); }
@@ -592,6 +609,29 @@ class PreviewPane : Panel
             string p = Path.Combine(dir, name + " (" + i + ")" + ext);
             if (!File.Exists(p)) return p;
         }
+    }
+
+    // 깔린 엑셀·워드·파워포인트로 열고 그 창을 이 칸 자리에 둔다(끼워 넣지는 않음)
+    void OpenInOffice(string path)
+    {
+        string app = MsOffice.AppName(Path.GetExtension(path));
+        var rect = RectangleToScreen(new Rectangle(0, note.Top, ClientSize.Width, ClientSize.Height - note.Top));
+        Say(app + "로 여는 중…");
+        int seq = showSeq;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            string err = null;
+            try { MsOffice.OpenBeside(path, rect); } catch (Exception ex) { err = ex.Message; Ieum.Log(app + " 편집 : " + ex.Message); }
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    if (seq != showSeq) return;
+                    Say(err == null ? app + "에서 편집 중" : "편집 못 함 : " + err + "\n\n[앱으로 열기]");
+                }));
+            }
+            catch { }
+        });
     }
 
     // 이음오피스로 파일을 열고, 그 창을 이 칸에 끼워 넣는다(이미 있으면 탭만 하나 늘어난다)
