@@ -1341,10 +1341,10 @@ class MainForm : Form
         polling = true;
         ThreadPool.QueueUserWorkItem(_ =>
         {
-            List<string> opened = null;
+            List<string> opened = null, added = null;
             string key = null;
             int need = 0;
-            try { opened = CardDock.Opened(h, out key, out need); } catch { }
+            try { opened = CardDock.Opened(h, out key, out need, out added); } catch { }
             try
             {
                 BeginInvoke((Action)(() =>
@@ -1363,6 +1363,8 @@ class MainForm : Form
                         wantProperty.Add(h);
                         LoadCard(h);
                     }
+                    // 기안 작성 중 카드에 새로 붙인 파일은 누르지 않아도 첨부 보기에 띄운다
+                    if (added != null && added.Count > 0) { if (opened == null) opened = new List<string>(); opened.AddRange(added); }
                     if (opened == null || opened.Count == 0) return;
                     foreach (var p in opened)
                     {

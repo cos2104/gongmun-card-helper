@@ -117,7 +117,11 @@ static class CardDock
  FileManager.ExecFile=function(src){ var e=document.documentElement; e.setAttribute('data-cc-open',(e.getAttribute('data-cc-open')||'')+src+String.fromCharCode(30)); }; }
  var e=document.documentElement, v=e.getAttribute('data-cc-open')||''; e.removeAttribute('data-cc-open');
  var need=(e.scrollWidth>e.clientWidth+4)?e.scrollWidth:0;
- return need+String.fromCharCode(29)+(function(){var a=document.getElementById('apprID');return (a&&a.value?a.value:'')+'|'+location.pathname+location.search.substring(0,300);})() + String.fromCharCode(29) + v; })()";
+ var nw='';
+ try { var fs=Attach.fileBox.files(), seen=window.__ccSeen, first=!seen; if(first) seen=window.__ccSeen={};
+  for(var i=0;i<fs.length;i++){ var f=fs[i]; if(seen[f.path]) continue; seen[f.path]=1;
+   if(first||f.atSancbox||f.atFileTrans) continue; var o=parseObjectPath(f.path); nw+=((o&&o.filePath)||f.path)+String.fromCharCode(30); } } catch(x) {}
+ return need+String.fromCharCode(29)+(function(){var a=document.getElementById('apprID');return (a&&a.value?a.value:'')+'|'+location.pathname+location.search.substring(0,300);})() + String.fromCharCode(29) + v + String.fromCharCode(29) + nw; })()";
 
     // 앱 밖에 있는 카드에 지난번 가로채기가 남아 있으면 푼다(돌려놓을 때 카드가 늦게 답한 경우)
     public static void Unhook(IntPtr h) { if (!saved.ContainsKey(h)) Hook(h, false); }
@@ -127,9 +131,11 @@ static class CardDock
         try { CardPage.Eval(h, on ? HookOn : HookOff, on ? 1500 : 3000); } catch (Exception ex) { Ieum.Log("가로채기 " + (on ? "켬" : "끔") + " : " + ex.Message); }
     }
 
-    // 카드에서 연 첨부 파일 경로들(가로챈 것)과, 카드가 지금 보이는 문서의 열쇠
-    public static List<string> Opened(IntPtr h, out string key, out int need)
+    // 카드에서 연 첨부 파일 경로들(가로챈 것)과, 카드가 지금 보이는 문서의 열쇠.
+    // added: 카드에 새로 붙인(기안 작성 중 [파일추가]) 내 PC 파일들 — 처음 본 목록은 빼고 그 뒤에 늘어난 것만
+    public static List<string> Opened(IntPtr h, out string key, out int need, out List<string> added)
     {
+        added = new List<string>();
         var list = new List<string>();
         string r = CardPage.Eval(h, TakeOpened, 3000);
         need = 0;
@@ -138,6 +144,12 @@ static class CardDock
         int i = r.IndexOf((char)29);
         key = i >= 0 ? r.Substring(0, i) : null;
         if (i >= 0) r = r.Substring(i + 1);
+        int k = r.IndexOf((char)29);
+        if (k >= 0)
+        {
+            foreach (var p in r.Substring(k + 1).Split((char)30)) if (p.Trim() != "") added.Add(p.Trim());
+            r = r.Substring(0, k);
+        }
         foreach (var p in r.Split((char)30)) if (p.Trim() != "") list.Add(p.Trim());
         return list;
     }

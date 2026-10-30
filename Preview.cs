@@ -155,12 +155,22 @@ static class Hangul
 
     static void Transform(string src, string srcFmt, string dst, string dstFmt)
     {
+        // 임시 폴더 밖 파일은 한글 보안 경고가 뜬다 → 임시 사본으로 바꾸고 결과만 옮긴다
+        string tmpSrc = HwpTemp.Inside(src) ? src : HwpTemp.CopyIn(src);
+        string tmpDst = HwpTemp.Inside(dst) ? dst : HwpTemp.NewPath(dst);
+        TransformRaw(tmpSrc, srcFmt, tmpDst, dstFmt);
+        if (tmpDst != dst) File.Copy(tmpDst, dst, true);
+    }
+
+    static void TransformRaw(string src, string srcFmt, string dst, string dstFmt)
+    {
         Exception error = null;
         var t = new Thread(() =>
         {
             dynamic hwp = null;
             try
             {
+                HwpTemp.EnsureModule();
                 hwp = Activator.CreateInstance(Type.GetTypeFromProgID("HWPFrame.HwpObject"));
                 try { hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule"); } catch { }
                 try { hwp.XHwpWindows.Item(0).Visible = false; } catch { }
@@ -183,6 +193,62 @@ static class Hangul
         t.Start();
         if (!t.Join(60000)) throw new Exception("한글이 응답 없음");
         if (error != null) throw error;
+    }
+}
+
+// 한글 보안 경고 피하기.
+// 한글 자동화는 보안 모듈(FilePathCheckerModule)이 허락한 경로만 묻지 않고 연다. 한컴 예제 모듈은 임시 폴더만 허락한다
+// (10-30: 카드 첨부 미리보기(임시 폴더)는 조용했는데 기안에 붙인 다운로드 폴더 파일은 '접근하려는 시도' 경고).
+// → 한글에는 늘 임시 폴더 사본을 열게 하고 저장은 사본에 한 뒤 원래 자리로 복사한다.
+static class HwpTemp
+{
+    static readonly string Temp = Path.GetFullPath(Path.GetTempPath());
+
+    public static bool Inside(string p)
+    {
+        try { return Path.GetFullPath(p).StartsWith(Temp, StringComparison.OrdinalIgnoreCase); } catch { return false; }
+    }
+
+    public static string NewPath(string forFile)
+    {
+        string dir = Path.Combine(Temp, AppInfo.Folder, "한글", Guid.NewGuid().ToString("N").Substring(0, 8));
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, Path.GetFileName(forFile));
+    }
+
+    public static string CopyIn(string src)
+    {
+        string p = NewPath(src);
+        File.Copy(src, p, true);
+        return p;
+    }
+
+    const string ModKey = @"Software\HNC\HwpAutomation\Modules";
+
+    // 보안 모듈이 등록돼 있지 않은 PC: 앱에 넣어 둔 한컴 예제 모듈을 설정 폴더에 두고 등록한다(있으면 건드리지 않음)
+    public static void EnsureModule()
+    {
+        try
+        {
+            using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(ModKey))
+            {
+                string cur = k != null ? k.GetValue("FilePathCheckerModule") as string : null;
+                if (!string.IsNullOrEmpty(cur) && File.Exists(cur)) return;
+            }
+            string dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppInfo.Folder, "FilePathCheckerModule.dll");
+            if (!File.Exists(dll))
+            {
+                using (var r = typeof(HwpTemp).Assembly.GetManifestResourceStream("FilePathCheckerModule.dll"))
+                {
+                    if (r == null) return;
+                    Directory.CreateDirectory(Path.GetDirectoryName(dll));
+                    using (var o = File.Create(dll)) r.CopyTo(o);
+                }
+            }
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(ModKey)) k.SetValue("FilePathCheckerModule", dll);
+            Ieum.Log("한글 보안 모듈 등록 : " + dll);
+        }
+        catch (Exception ex) { Ieum.Log("한글 보안 모듈 : " + ex.Message); }
     }
 }
 
@@ -270,7 +336,9 @@ class PreviewPane : Panel
         Controls.Add(pageView);
         Controls.Add(ieumHost);
         hwpHost.Dock = DockStyle.Fill;
-        hwpHost.Resize += (s, e) => hwp22.Fit(hwpHost);
+        var zoomLater = new System.Windows.Forms.Timer { Interval = 300 };
+        zoomLater.Tick += (s, e) => { zoomLater.Stop(); hwp22.ZoomFit(); };
+        hwpHost.Resize += (s, e) => { hwp22.Fit(hwpHost); zoomLater.Stop(); zoomLater.Start(); };
         Controls.Add(hwpHost);
         Controls.Add(note);
         Controls.Add(line);
@@ -727,6 +795,7 @@ class HwpApp
             if (!CardDock.IsDocked(wnd)) CardDock.Dock(wnd, host, false);
             return;
         }
+        HwpTemp.EnsureModule();
         hwp = Activator.CreateInstance(progType);
         try { hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule"); } catch { }
         dynamic w = hwp.XHwpWindows.Item(0);
@@ -737,16 +806,23 @@ class HwpApp
 
     public void Fit(Control host) { if (Alive) CardDock.Fit(wnd, host); }
 
+    string openedPath, shadowPath;   // 연 원래 파일 · 한글이 실제로 연 임시 사본(임시 폴더 밖 파일일 때)
+
     public bool Open(string path, bool edit)
     {
-        bool ok = hwp.Open(path, "", "forceopen:true;suspendpassword:true;lock:false");   // 카드 첨부를 붙잡지 않게
+        openedPath = path;
+        shadowPath = HwpTemp.Inside(path) ? null : HwpTemp.CopyIn(path);
+        bool ok = hwp.Open(shadowPath ?? path, "", "forceopen:true;suspendpassword:true;lock:false");   // 카드 첨부를 붙잡지 않게
         SetEdit(edit);
-        try { hwp.Run("ViewZoomFitWidth"); } catch { }
+        ZoomFit();
         try { hwp.Run("MoveDocBegin"); } catch { }
         return ok;
     }
 
     public void SetEdit(bool on) { try { hwp.EditMode = on ? 1 : 0; } catch { } }
+
+    // 칸 너비에 맞춰 쪽 폭 맞춤(칸 크기가 바뀔 때마다 다시)
+    public void ZoomFit() { if (Alive) try { hwp.Run("ViewZoomFitWidth"); } catch { } }
 
     public bool IsModified()
     {
@@ -759,7 +835,12 @@ class HwpApp
     public void SaveAs(string path)
     {
         string fmt = path.EndsWith(".hwpx", StringComparison.OrdinalIgnoreCase) ? "HWPX" : "HWP";
-        if (!Convert.ToBoolean(hwp.SaveAs(path, fmt, "lock:false"))) throw new Exception("저장 실패");
+        // 임시 폴더 밖이면 사본에 저장하고 복사(보안 경고 피하기)
+        string dest = path;
+        if (!HwpTemp.Inside(path))
+            dest = shadowPath != null && string.Equals(path, openedPath, StringComparison.OrdinalIgnoreCase) ? shadowPath : HwpTemp.NewPath(path);
+        if (!Convert.ToBoolean(hwp.SaveAs(dest, fmt, "lock:false"))) throw new Exception("저장 실패");
+        if (dest != path) File.Copy(dest, path, true);
         // lock:false 로 저장하면 한글이 '고쳐짐'을 켜 둔다 → 끈다(안 끄면 다른 파일로 넘어갈 때 괜히 저장을 묻는다)
         try { hwp.XHwpDocuments.Item(0).Modified = 0; } catch { }
     }
