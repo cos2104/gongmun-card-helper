@@ -320,7 +320,7 @@ class PreviewPane : Panel
         tabs.Controls.Clear();
         tabButtons.Clear();
         Say("불러오는 중…");
-        dir = Path.Combine(Path.GetTempPath(), "공문카드도우미", "미리보기", c.Hwnd.ToInt64().ToString("X"));
+        dir = Path.Combine(Path.GetTempPath(), AppInfo.Folder, "미리보기", c.Hwnd.ToInt64().ToString("X"));
         string d = dir;
         ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -527,7 +527,7 @@ class PreviewPane : Panel
         if (!editing) return true;
         bool modified = Hwp22Shown ? hwp22.IsModified() : (hwpView.Visible && hwpView.IsModified());
         if (!modified) return true;
-        var r = MessageBox.Show(this, "고친 내용을 저장할까요?", "공문 카드 도우미", MessageBoxButtons.YesNoCancel);
+        var r = MessageBox.Show(this, "고친 내용을 저장할까요?", AppInfo.Name, MessageBoxButtons.YesNoCancel);
         if (r == DialogResult.Cancel) return false;
         if (r == DialogResult.Yes) SaveCurrent();
         return true;
@@ -614,7 +614,7 @@ class PreviewPane : Panel
     {
         if (target.EndsWith(".hwpx", StringComparison.OrdinalIgnoreCase))
         {
-            string tmp = Path.Combine(Path.GetTempPath(), "공문카드도우미", Guid.NewGuid().ToString("N") + ".hwp");
+            string tmp = Path.Combine(Path.GetTempPath(), AppInfo.Folder, Guid.NewGuid().ToString("N") + ".hwp");
             Directory.CreateDirectory(Path.GetDirectoryName(tmp));
             File.WriteAllBytes(tmp, bytes);
             try { Hangul.ToHwpx(tmp, target); } finally { try { File.Delete(tmp); } catch { } }

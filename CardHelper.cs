@@ -1,4 +1,4 @@
-﻿// 공문 카드 도우미 — 열린 문서관리카드(WXSClient) 창을 모아 보고, 본문·번호·첨부를 다룬다.
+﻿// 공문서 모아보기 도우미 — 열린 문서관리카드(WXSClient) 창을 모아 보고, 본문·번호·첨부를 다룬다.
 // 빌드: build.bat (.NET Framework 4 csc, C# 5 문법)
 using System;
 using System.Collections.Generic;
@@ -186,7 +186,7 @@ static class CardPage
         if (!Ieum.Available) return;
         try
         {
-            string dir = Path.Combine(Path.GetTempPath(), "공문카드도우미", "읽기");
+            string dir = Path.Combine(Path.GetTempPath(), AppInfo.Folder, "읽기");
             Directory.CreateDirectory(dir);
             string tmp = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".hwp");
             SaveBody(info.Hwnd, tmp);
@@ -333,7 +333,7 @@ static class Ieum
     {
         try
         {
-            string dir = Path.Combine(Path.GetTempPath(), "공문카드도우미");
+            string dir = Path.Combine(Path.GetTempPath(), AppInfo.Folder);
             Directory.CreateDirectory(dir);
             File.AppendAllText(Path.Combine(dir, "log.txt"), DateTime.Now.ToString("MM-dd HH:mm:ss ") + text + "\r\n", Encoding.UTF8);
         }
@@ -437,7 +437,7 @@ class MainForm : Form
 
     public MainForm()
     {
-        Text = "공문 카드 도우미";
+        Text = AppInfo.Name;
         Font = uiFont;
         BackColor = Bg;
         Win11.Apply(this, Bg);
@@ -446,7 +446,9 @@ class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ApplyIcon();
 
-        settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "공문카드도우미", "settings.txt");
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        settingsPath = Path.Combine(appData, AppInfo.Folder, "settings.txt");
+        MoveOldSettings(Path.Combine(appData, AppInfo.OldFolder), Path.GetDirectoryName(settingsPath));
 
         // 위쪽: 목록 접기 · 찾기 · 다시 읽기 · 카드 앱 안에 · 항상 위
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(10, 9, 10, 0), BackColor = Bg, WrapContents = false };
@@ -1501,7 +1503,7 @@ class MainForm : Form
     {
         var c = current;
         if (c == null || !c.Loaded) { status.Text = "카드를 고르세요"; return; }
-        string dir = Path.Combine(Path.GetTempPath(), "공문카드도우미");
+        string dir = Path.Combine(Path.GetTempPath(), AppInfo.Folder);
         string path = Path.Combine(dir, SafeName(c.Title) + ".hwp");
         status.Text = "원문 여는 중…";
         ThreadPool.QueueUserWorkItem(_ =>
@@ -1598,6 +1600,21 @@ class MainForm : Form
     {
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         return b.X + "," + b.Y + "," + b.Width + "," + b.Height;
+    }
+
+    // 1.0.4 까지는 설정 폴더가 '공문카드도우미' → 처음 한 번 새 폴더로 복사(옛 폴더는 그대로 둔다).
+    // 아이콘은 설정 폴더 안 경로로 적혀 있어 그 경로도 바꾼다
+    static void MoveOldSettings(string oldDir, string newDir)
+    {
+        try
+        {
+            if (Directory.Exists(newDir) || !Directory.Exists(oldDir)) return;
+            Directory.CreateDirectory(newDir);
+            foreach (var f in Directory.GetFiles(oldDir)) File.Copy(f, Path.Combine(newDir, Path.GetFileName(f)));
+            string st = Path.Combine(newDir, "settings.txt");
+            if (File.Exists(st)) File.WriteAllText(st, File.ReadAllText(st, Encoding.UTF8).Replace(oldDir, newDir), Encoding.UTF8);
+        }
+        catch (Exception ex) { Ieum.Log("옛 설정 옮기기 : " + ex.Message); }
     }
 
     void SaveSettings()

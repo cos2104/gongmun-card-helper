@@ -8,8 +8,8 @@ using System.Net;
 using System.Reflection;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("공문 카드 도우미")]
-[assembly: AssemblyProduct("공문 카드 도우미")]
+[assembly: AssemblyTitle("공문서 모아보기 도우미")]
+[assembly: AssemblyProduct("공문서 모아보기 도우미")]
 [assembly: AssemblyCompany("전남온라인학교 김우주")]
 [assembly: AssemblyCopyright("전남온라인학교 김우주")]
 [assembly: AssemblyVersion("1.0.5.0")]
@@ -17,7 +17,9 @@ using System.Windows.Forms;
 
 static class AppInfo
 {
-    public const string Name = "공문 카드 도우미";
+    public const string Name = "공문서 모아보기 도우미";
+    public const string Folder = "공문서모아보기도우미";      // 설정·임시 폴더 이름
+    public const string OldFolder = "공문카드도우미";      // 1.0.4 까지의 설정 폴더
     public const string Maker = "전남온라인학교 김우주";
     public const string Mail = "k203719@ai.jne.kr";
     public const string Repo = "cos2104/gongmun-card-helper";
@@ -164,7 +166,7 @@ class AboutForm : InfoForm
     public AboutForm(Action checkUpdate) : base("정보", new Size(440, 300))
     {
         Heading(AppInfo.Name);
-        Line("판 " + AppInfo.VersionText, Color.FromArgb(96, 96, 96));
+        Line("판 " + AppInfo.VersionText + "  ·  에듀파인 문서관리카드용(비공식)", Color.FromArgb(96, 96, 96));
         Line("만든 이  " + AppInfo.Maker, null, true);
         Link("의견 보내기  " + AppInfo.Mail, AppInfo.OpenMail);
         Link("GitHub  " + AppInfo.RepoUrl.Replace("https://", ""), () => AppInfo.OpenUrl(AppInfo.RepoUrl));
@@ -183,12 +185,11 @@ class WelcomeForm : InfoForm
         Heading(AppInfo.Name);
         Line("에듀파인 문서관리카드를 한 창에 모아 봐요.", Sub);
         Row("1", Word("공문을 열면 카드가 가운데로 들어와요"));
-        Row("2", Word("왼쪽 목록에서 카드 고르기 ·"), Chip("체크한 카드 닫기"));
+        Row("2", Word("위쪽 칩에서 카드 고르기 ·"), Chip("목록"), Word("에서 여러 개 닫기"));
         Row("3", Chip("첨부 보기", true), Word("본문·붙임 보기 ·"), Chip("편집"), Word("·"), Chip("저장", false, true));
         Row("4", Chip("정보", true), Word("번호 복사 · 첨부 한 번에 저장"));
         Row("5", Chip("설정 ▾"), Word("배열 · 결재정보 먼저 · 아이콘 · 업데이트"));
         Line("앱을 닫으면 카드도 닫혀요. 기안 중인 카드는 남겨요.", Color.FromArgb(160, 90, 0));
-        if (!Ieum.Available) Link("이음오피스 받기 (PDF·오피스 보기)", Ieum.OpenDownloadPage);
         Line(AppInfo.Maker + "  ·  " + AppInfo.Mail, Sub);
         Btn("시작하기", true, (s, e) => Close());
     }
