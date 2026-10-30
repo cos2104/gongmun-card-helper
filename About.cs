@@ -1,4 +1,4 @@
-// 판 정보 · 만든 이 · 첫 사용 설명 · 업데이트(GitHub 릴리스)
+﻿// 판 정보 · 만든 이 · 첫 사용 설명 · 업데이트(GitHub 릴리스)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -173,21 +173,52 @@ class AboutForm : InfoForm
     }
 }
 
+// 처음 쓰는 법: 짧은 말 + 앱에 있는 단추 모양 그대로
 class WelcomeForm : InfoForm
 {
-    public WelcomeForm() : base("처음 쓰는 법", new Size(560, 520))
+    static readonly Color Sub = Color.FromArgb(96, 96, 96);
+
+    public WelcomeForm() : base("처음 쓰는 법", new Size(520, 440))
     {
         Heading(AppInfo.Name);
-        Line("에듀파인 문서관리카드를 한 창에 모아 보고, 첨부를 바로 보는 앱이에요.", Color.FromArgb(96, 96, 96));
-        Line("① 에듀파인에서 공문을 열면 카드가 이 앱 가운데로 들어와요.", null, true);
-        Line("② 왼쪽 목록에서 카드를 고르면 바로 바뀌어요. 다 본 카드는 체크하고 [체크한 카드 닫기].", null, true);
-        Line("③ 오른쪽 [첨부 보기]에서 본문·붙임을 바로 봐요. 카드에서 첨부를 눌러도 여기 떠요. [편집]으로 고치고 [저장]하면 저장 폴더에 저장돼요.", null, true);
-        Line("④ [정보]에서 문서번호·공문일자를 '번호(2026.10.29.)' 모양으로 복사하고, 첨부를 정해 둔 폴더에 한 번에 저장해요.", null, true);
-        Line("⑤ [설정 ▾]에서 배열(카드·첨부 자리), 결재정보 먼저 보기, 아이콘, 업데이트를 고를 수 있어요.", null, true);
-        Line("앱을 닫으면 앱 안의 카드도 같이 닫혀요. 기안 작성 중인 카드는 닫지 않고 꺼내 둬요.", Color.FromArgb(160, 90, 0));
-        Line("PDF·엑셀 미리보기와 편집은 이음오피스가, 한글 원문 보기는 한글 2022가 있으면 더 정확해요.", Color.FromArgb(96, 96, 96));
-        if (!Ieum.Available) Link("이음오피스 받기", Ieum.OpenDownloadPage);
-        Line("만든 이  " + AppInfo.Maker + "   ·   의견  " + AppInfo.Mail, Color.FromArgb(96, 96, 96));
+        Line("에듀파인 문서관리카드를 한 창에 모아 봐요.", Sub);
+        Row("1", Word("공문을 열면 카드가 가운데로 들어와요"));
+        Row("2", Word("왼쪽 목록에서 카드 고르기 ·"), Chip("체크한 카드 닫기"));
+        Row("3", Chip("첨부 보기", true), Word("본문·붙임 보기 ·"), Chip("편집"), Word("·"), Chip("저장", false, true));
+        Row("4", Chip("정보", true), Word("번호 복사 · 첨부 한 번에 저장"));
+        Row("5", Chip("설정 ▾"), Word("배열 · 결재정보 먼저 · 아이콘 · 업데이트"));
+        Line("앱을 닫으면 카드도 닫혀요. 기안 중인 카드는 남겨요.", Color.FromArgb(160, 90, 0));
+        if (!Ieum.Available) Link("이음오피스 받기 (PDF·오피스 보기)", Ieum.OpenDownloadPage);
+        Line(AppInfo.Maker + "  ·  " + AppInfo.Mail, Sub);
         Btn("시작하기", true, (s, e) => Close());
+    }
+
+    // 번호 동그라미 + 한 줄
+    void Row(string no, params Control[] parts)
+    {
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 2), BackColor = Color.White };
+        var n = new Label
+        {
+            Text = no, AutoSize = false, Size = new Size(22, 22), TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = Color.White, BackColor = Color.FromArgb(0, 95, 184), Margin = new Padding(0, 5, 8, 0),
+            Font = new Font("맑은 고딕", 8.5f, FontStyle.Bold)
+        };
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddEllipse(0, 0, 22, 22);
+        n.Region = new Region(path);
+        row.Controls.Add(n);
+        row.Controls.AddRange(parts);
+        Body.Controls.Add(row);
+    }
+
+    static Label Word(string t)
+    {
+        return new Label { Text = t, AutoSize = true, Margin = new Padding(2, 8, 2, 0) };
+    }
+
+    // 눌리지 않는 보기용 단추(앱의 단추와 같은 모양)
+    static UiButton Chip(string t, bool selected = false, bool primary = false)
+    {
+        return new UiButton { Text = t, Selected = selected, Primary = primary, TabStop = false, Cursor = Cursors.Default, Margin = new Padding(2, 2, 2, 0) };
     }
 }
