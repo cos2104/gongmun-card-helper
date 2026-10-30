@@ -12,8 +12,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("공문 카드 도우미")]
 [assembly: AssemblyCompany("전남온라인학교 김우주")]
 [assembly: AssemblyCopyright("전남온라인학교 김우주")]
-[assembly: AssemblyVersion("1.0.2.0")]
-[assembly: AssemblyFileVersion("1.0.2.0")]
+[assembly: AssemblyVersion("1.0.3.0")]
+[assembly: AssemblyFileVersion("1.0.3.0")]
 
 static class AppInfo
 {
@@ -220,5 +220,79 @@ class WelcomeForm : InfoForm
     static UiButton Chip(string t, bool selected = false, bool primary = false)
     {
         return new UiButton { Text = t, Selected = selected, Primary = primary, TabStop = false, Cursor = Cursors.Default, Margin = new Padding(2, 2, 2, 0) };
+    }
+}
+
+// 오른쪽 아래에 뜨는 새 판 알림 카드(회색 확인창 대신)
+class UpdateCard : Panel
+{
+    static readonly Color Accent = Color.FromArgb(0, 95, 184);
+    static readonly Color Sub = Color.FromArgb(96, 96, 96);
+    readonly PictureBox icon = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(36, 36), Location = new Point(18, 18) };
+    readonly Label title = new Label { AutoSize = false, Location = new Point(66, 16), Size = new Size(270, 24), Font = new Font("맑은 고딕", 11.5f, FontStyle.Bold) };
+    readonly Label ver = new Label { AutoSize = false, Location = new Point(66, 40), Size = new Size(270, 20), ForeColor = Sub };
+    readonly Label notes = new Label { AutoSize = false, Location = new Point(18, 70), Size = new Size(324, 20) };
+    readonly Label foot = new Label { AutoSize = false, Size = new Size(324, 20), ForeColor = Sub, Font = new Font("맑은 고딕", 8.75f) };
+    readonly UiButton go = new UiButton { Text = "업데이트", Primary = true };
+    readonly UiButton later = new UiButton { Text = "나중에" };
+    readonly Label close = new Label { Text = "✕", AutoSize = false, Size = new Size(24, 24), Location = new Point(330, 8), TextAlign = ContentAlignment.MiddleCenter, ForeColor = Sub, Cursor = Cursors.Hand };
+
+    public event Action Install;
+
+    public UpdateCard()
+    {
+        Width = 360;
+        BackColor = Color.White;
+        DoubleBuffered = true;
+        Visible = false;
+        Font = new Font("맑은 고딕", 9.5f);
+        try { icon.Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath).ToBitmap(); } catch { }
+        go.Click += (s, e) => { if (Install != null) Install(); };
+        later.Click += (s, e) => Visible = false;
+        close.Click += (s, e) => Visible = false;
+        Controls.AddRange(new Control[] { icon, title, ver, notes, foot, go, later, close });
+        Paint += (s, e) =>
+        {
+            using (var pen = new Pen(Color.FromArgb(214, 216, 220))) e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            using (var bar = new SolidBrush(Accent)) e.Graphics.FillRectangle(bar, 0, 0, 4, Height);
+        };
+    }
+
+    // 릴리스 설명은 한 줄에 하나씩, 앞의 '-' '*' 는 '·' 로
+    public void Open(Updater.Release r)
+    {
+        title.Text = "새 판이 나왔어요";
+        ver.Text = AppInfo.VersionText + "  →  " + r.Tag.TrimStart('v', 'V');
+        var lines = new List<string>();
+        foreach (var raw in (r.Notes ?? "").Replace("\r", "").Split('\n'))
+        {
+            string l = raw.Trim().TrimStart('-', '*', '·', ' ').Trim();
+            if (l != "" && !l.StartsWith("#")) lines.Add("· " + l);
+            if (lines.Count == 5) break;
+        }
+        notes.Text = string.Join("\n", lines.ToArray());
+        int nh = lines.Count == 0 ? 0 : TextRenderer.MeasureText(notes.Text, notes.Font, new Size(notes.Width, 0), TextFormatFlags.WordBreak).Height;
+        notes.Height = nh;
+        foot.Text = "앱이 잠깐 닫혔다 열려요. 카드는 그대로예요.";
+        foot.Location = new Point(18, notes.Bottom + (nh > 0 ? 10 : 0));
+        int by = foot.Bottom + 12;
+        go.Location = new Point(Width - 18 - go.PreferredSize.Width, by);
+        later.Location = new Point(go.Left - 6 - later.PreferredSize.Width, by);
+        go.Enabled = later.Enabled = true;
+        Height = by + 32 + 16;
+        Visible = true;
+        BringToFront();
+    }
+
+    public void Busy(string text)
+    {
+        foot.Text = text;
+        go.Enabled = later.Enabled = false;
+    }
+
+    public void Failed(string text)
+    {
+        foot.Text = text;
+        go.Enabled = later.Enabled = true;
     }
 }

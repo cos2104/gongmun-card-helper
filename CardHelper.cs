@@ -368,7 +368,9 @@ class MainForm : Form
     readonly SegTabs side = new SegTabs();
     readonly Panel sideView = new Panel();
     readonly Panel sideInfo = new Panel();
-    readonly ToolStripStatusLabel updateLink = new ToolStripStatusLabel { IsLink = true, Visible = false, Margin = new Padding(0, 3, 16, 2) };
+    readonly UiButton updateBtn = new UiButton { Text = "업데이트", Primary = true, Visible = false };
+    readonly UpdateCard updateCard = new UpdateCard();
+    string cardShownFor = "";   // 저절로는 판마다 한 번만 띄운다
     Updater.Release pendingUpdate;
     bool updating;
     bool welcomed;
@@ -454,7 +456,8 @@ class MainForm : Form
         onTop.CheckedChanged += (s, e) => { TopMost = onTop.Checked; SaveSettings(); };
         settingsBtn.Text = "설정 ▾";
         settingsBtn.Click += (s, e) => { BuildSettingsMenu(); settingsMenu.Show(settingsBtn, new Point(0, settingsBtn.Height)); };
-        top.Controls.AddRange(new Control[] { listToggle, search, reload, settingsBtn });
+        updateBtn.Click += (s, e) => ShowUpdateCard();
+        top.Controls.AddRange(new Control[] { listToggle, search, reload, settingsBtn, updateBtn });
 
         // 왼쪽: 카드 목록
         // 한 줄에 카드 하나: 체크 · 제목(굵게) / 문서번호 · 첨부 수
@@ -644,11 +647,6 @@ class MainForm : Form
         split.Panel2.Controls.Add(inner);
 
         var strip = new StatusStrip { BackColor = Bg, SizingGrip = true, Padding = new Padding(10, 0, 10, 0) };
-        // 새 판 알림은 맨 앞에 둔다(오른쪽 끝에 두면 좁은 창에서 밖으로 밀려 안 보였다)
-        updateLink.LinkColor = Accent;
-        updateLink.Font = new Font(uiFont, FontStyle.Bold);
-        updateLink.Click += (s, e) => InstallUpdate();
-        strip.Items.Add(updateLink);
         strip.Items.Add(status);
 
         Controls.Add(split);
@@ -665,7 +663,9 @@ class MainForm : Form
         FormClosing += (s, e) => { if (showHook != IntPtr.Zero) UnhookWinEvent(showHook); SaveSettings(); pane.Shutdown(); if (updating) CardDock.ReleaseAll(); else CardDock.CloseAll(IsWritingCard); };
         showProc = OnWindowShown;
         showHook = SetWinEventHook(0x8002, 0x8002, IntPtr.Zero, showProc, 0, 0, 0);   // EVENT_OBJECT_SHOW, OUTOFCONTEXT
-        Resize += (s, e) => { ApplyLayout(); SaveSoon(); };
+        Resize += (s, e) => { ApplyLayout(); SaveSoon(); PlaceUpdateCard(); };
+        updateCard.Install += InstallUpdate;
+        Controls.Add(updateCard);
         Move += (s, e) => SaveSoon();
         saveSoon.Tick += (s, e) => { saveSoon.Stop(); SaveSettings(); };
         if (savedBounds.Width > 0 && Screen.AllScreens.Any(sc => sc.WorkingArea.IntersectsWith(savedBounds)))
@@ -1112,9 +1112,9 @@ class MainForm : Form
                     if (r != null && Updater.IsNewer(r))
                     {
                         pendingUpdate = r;
-                        updateLink.Text = "새 판 " + r.Tag + " 받기";
-                        updateLink.Visible = true;
-                        if (manual) InstallUpdate();
+                        updateBtn.Visible = true;
+                        if (manual || cardShownFor != r.Tag) ShowUpdateCard();
+                        if (manual) status.Text = "";
                     }
                     else if (manual) status.Text = err != null ? "업데이트 확인 못 함 : " + err : "지금이 최신 판이에요 (" + AppInfo.VersionText + ")";
                 }));
@@ -1123,14 +1123,27 @@ class MainForm : Form
         });
     }
 
+    void ShowUpdateCard()
+    {
+        if (pendingUpdate == null) return;
+        cardShownFor = pendingUpdate.Tag;
+        updateCard.Open(pendingUpdate);
+        PlaceUpdateCard();
+    }
+
+    // 오른쪽 아래, 상태줄 바로 위
+    void PlaceUpdateCard()
+    {
+        if (!updateCard.Visible) return;
+        updateCard.Location = new Point(ClientSize.Width - updateCard.Width - 18, ClientSize.Height - updateCard.Height - 36);
+        updateCard.BringToFront();
+    }
+
     void InstallUpdate()
     {
         var r = pendingUpdate;
         if (r == null) return;
-        string msg = "새 판 " + r.Tag + "으로 바꿀까요?\n앱이 잠깐 닫혔다가 다시 열려요. 앱 안의 카드는 그대로 다시 들어와요.";
-        if (r.Notes.Trim() != "") msg += "\n\n" + (r.Notes.Length > 400 ? r.Notes.Substring(0, 400) + "…" : r.Notes);
-        if (MessageBox.Show(this, msg, AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
-        status.Text = "새 판 받는 중…";
+        updateCard.Busy("새 판 받는 중…");
         UseWaitCursor = true;
         System.Threading.ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -1141,7 +1154,7 @@ class MainForm : Form
                 BeginInvoke((Action)(() =>
                 {
                     UseWaitCursor = false;
-                    if (err != null) { status.Text = "업데이트 못 함 : " + err; Ieum.Log("업데이트 : " + err); return; }
+                    if (err != null) { updateCard.Failed("못 받았어요 : " + err); Ieum.Log("업데이트 : " + err); return; }
                     updating = true;
                     Close();
                 }));
