@@ -363,6 +363,13 @@ class MainForm : Form
     readonly CheckBox withBody = new CheckBox();
     readonly CheckBox embed = new CheckBox();
     readonly Panel cardHost = new Panel();
+    readonly Panel cardArea = new Panel();   // 칩 줄 + 카드
+    readonly FlowLayoutPanel chipBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 6, 4, 0) };
+    readonly Dictionary<IntPtr, UiButton> chips = new Dictionary<IntPtr, UiButton>();
+    readonly ToolTip tip = new ToolTip { InitialDelay = 300, ReshowDelay = 100 };
+    string listStyle = "chips";   // chips: 카드 위 칩 줄 + 목록은 접어 둠 · list: 왼쪽 목록
+    readonly System.Windows.Forms.Timer slide = new System.Windows.Forms.Timer { Interval = 15 };
+    int slideTarget;
     readonly Label cardNote = new Label();
     readonly PreviewPane pane = new PreviewPane();
     readonly SegTabs side = new SegTabs();
@@ -395,6 +402,7 @@ class MainForm : Form
     double innerRatio = 0.56;   // 카드 칸 몫
     int listWidth = 290;
     bool? listShown;            // null 이면 창 너비에 따라 저절로
+    bool sawListStyle;          // 칩 방식으로 처음 넘어오면 예전 '목록 펴 둠' 값은 버린다
     bool laying;
     bool draggingInner, draggingSplit;   // 사람이 칸 경계를 끄는 중(놓을 때 마우스 단추가 이미 떨어져 있어 따로 표시한다)
     string sideTab = "view";
@@ -439,7 +447,8 @@ class MainForm : Form
         // 위쪽: 목록 접기 · 찾기 · 다시 읽기 · 카드 앱 안에 · 항상 위
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(10, 9, 10, 0), BackColor = Bg, WrapContents = false };
         listToggle.Text = "목록";
-        listToggle.Click += (s, e) => { listShown = split != null && split.Panel1Collapsed; ApplyLayout(); SaveSoon(); };
+        listToggle.Click += (s, e) => { if (split == null) return; bool show = split.Panel1Collapsed; listShown = show; SlideList(show); SaveSoon(); };
+        slide.Tick += (s, e) => SlideStep();
         search.Width = 260;
         search.Margin = new Padding(6, 4, 10, 0);
         SetCue(search, "제목·문서번호 찾기");
@@ -468,7 +477,8 @@ class MainForm : Form
         list.BorderStyle = BorderStyle.None;
         list.HeaderStyle = ColumnHeaderStyle.None;
         list.OwnerDraw = true;
-        list.SmallImageList = new ImageList { ImageSize = new Size(1, 48) };
+        list.SmallImageList = new ImageList { ImageSize = new Size(1, 52) };
+        list.ShowItemToolTips = true;
         list.Columns.Add("카드", 300);
         list.Dock = DockStyle.Fill;
         list.Resize += (s, e) => FitColumns();
@@ -482,7 +492,7 @@ class MainForm : Form
             if (!checkedCards.Remove(h)) checkedCards.Add(h);
             list.Invalidate(it.Bounds);
         };
-        list.SelectedIndexChanged += (s, e) => ShowSelected();
+        list.SelectedIndexChanged += (s, e) => { ShowSelected(); RefreshChips(); };
         list.DoubleClick += (s, e) => Activate(SelectedCard());
         list.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) Activate(SelectedCard()); };
 
@@ -593,6 +603,11 @@ class MainForm : Form
         cardNote.ForeColor = Sub;
         cardNote.Text = "공문 카드를 고르세요";
         cardHost.Controls.Add(cardNote);
+        cardArea.Dock = DockStyle.Fill;
+        cardArea.BackColor = Bg;
+        chipBar.BackColor = Bg;
+        cardArea.Controls.Add(cardHost);
+        cardArea.Controls.Add(chipBar);
 
         pane.Dock = DockStyle.Fill;
         pane.Status = t => status.Text = t;
@@ -622,10 +637,10 @@ class MainForm : Form
             double whole = inner.Orientation == Orientation.Vertical ? inner.Width : inner.Height;
             if (whole <= 0) return;
             double r = inner.SplitterDistance / whole;
-            if (cardHost.Parent == inner.Panel2) r = 1 - r;   // 첨부가 앞에 있으면 카드 몫은 나머지
+            if (cardArea.Parent == inner.Panel2) r = 1 - r;   // 첨부가 앞에 있으면 카드 몫은 나머지
             innerRatio = Math.Max(0.2, Math.Min(0.8, r));
         };
-        inner.Panel1.Controls.Add(cardHost);
+        inner.Panel1.Controls.Add(cardArea);
         inner.Panel2.Controls.Add(side);
 
         split = new SplitContainer { Size = new Size(1600, 800), BackColor = Bg, SplitterWidth = 6 };
@@ -676,6 +691,8 @@ class MainForm : Form
         Shown += (s, e) =>
         {
             if (savedMax) WindowState = FormWindowState.Maximized;
+            // 칩 방식은 목록이 접힌 채 시작한다. 접힌 목록은 창(핸들)이 안 만들어져 '고른 카드'를 못 읽으니 미리 만든다
+            IntPtr make = list.Handle;
             ApplyLayout();
             EmbedChanged();
             RefreshList();
@@ -824,6 +841,8 @@ class MainForm : Form
             CardInfo c;
             cache.TryGetValue(h, out c);
             SetText(it, 0, c != null ? c.Title : Native.Text(h));
+            string tipText = (c != null ? c.Title : Native.Text(h)) + (c != null && c.DocNo != "" ? "\n" + c.DocNo : "") + (c != null && c.Files.Count > 0 ? "  ·  첨부 " + c.Files.Count : "");
+            if (it.ToolTipText != tipText) it.ToolTipText = tipText;
             SetText(it, 1, c == null || c.Error == "읽는 중" ? "읽는 중" : c.Error != "" ? "못 읽음" : c.DocNo);
             SetText(it, 2, c == null || !c.Loaded ? "" : c.Files.Count.ToString());
         }
@@ -835,6 +854,7 @@ class MainForm : Form
         if (newest != IntPtr.Zero)
             foreach (ListViewItem it in list.Items) if ((IntPtr)it.Tag == newest) { it.Selected = true; it.EnsureVisible(); }
         if (list.SelectedItems.Count == 0 && list.Items.Count > 0) list.Items[0].Selected = true;
+        RefreshChips();
         // 앱 안에 넣기를 켜 두면 열린 카드는 모두 앱 안으로(고른 것만 보이고 나머지는 숨김)
         if (embed.Checked && cardHost.IsHandleCreated)
             foreach (var h in cards)
@@ -865,9 +885,11 @@ class MainForm : Form
         laying = true;
         try
         {
-            bool showList = listShown ?? (ClientSize.Width >= 1400);
+            bool showList = listShown ?? (listStyle == "list" && ClientSize.Width >= 1400);
+            chipBar.Visible = listStyle == "chips";
+            if (slide.Enabled) showList = !split.Panel1Collapsed;   // 밀어 내는 중엔 건드리지 않는다
             split.Panel1Collapsed = !showList;
-            if (showList) split.SplitterDistance = Math.Max(split.Panel1MinSize, Math.Min(listWidth, split.Width - split.Panel2MinSize - split.SplitterWidth));
+            if (showList && !slide.Enabled) split.SplitterDistance = Math.Max(split.Panel1MinSize, Math.Min(listWidth, split.Width - split.Panel2MinSize - split.SplitterWidth));
             listToggle.Selected = showList;
 
             // 배열: 자동이면 카드가 가로 굴림 없이 보일 너비(cardNeed, 가로형 카드는 더 넓다)가 안 나올 때 카드 위 · 첨부 아래
@@ -888,6 +910,95 @@ class MainForm : Form
         if (shownCard != IntPtr.Zero) CardDock.Fit(shownCard, cardHost);
     }
 
+    // 카드 칸 위 칩 줄: 목록과 같은 순서 · 고른 카드는 옅은 파랑 + 막대 · 마우스를 대면 전체 제목
+    void RefreshChips()
+    {
+        if (listStyle != "chips") { if (chipBar.Visible) chipBar.Visible = false; return; }
+        if (!chipBar.Visible) chipBar.Visible = true;
+        var want = new List<IntPtr>();
+        foreach (ListViewItem it in list.Items) want.Add((IntPtr)it.Tag);
+        chipBar.SuspendLayout();
+        foreach (var h in new List<IntPtr>(chips.Keys))
+            if (!want.Contains(h)) { var old = chips[h]; chips.Remove(h); chipBar.Controls.Remove(old); old.Dispose(); }
+        IntPtr sel = SelectedHwnd();
+        for (int i = 0; i < want.Count; i++)
+        {
+            IntPtr h = want[i];
+            UiButton b;
+            if (!chips.TryGetValue(h, out b))
+            {
+                b = new UiButton { Margin = new Padding(0, 0, 4, 4) };
+                b.Click += (s, e) => SelectCard(h);
+                b.MouseUp += (s, e) => { if (e.Button == MouseButtons.Right) ChipMenu(h, (Control)s, e.Location); };
+                chips[h] = b;
+                chipBar.Controls.Add(b);
+            }
+            chipBar.Controls.SetChildIndex(b, i);
+            string title = list.Items[i].SubItems[0].Text;
+            if (title.Trim() == "") title = list.Items[i].SubItems[1].Text;
+            string label = title.Length > 20 ? title.Substring(0, 19).TrimEnd() + "…" : title;
+            if (b.Text != label) b.Text = label;
+            if ((string)b.Tag != list.Items[i].ToolTipText) { b.Tag = list.Items[i].ToolTipText; tip.SetToolTip(b, list.Items[i].ToolTipText); }
+            b.Selected = h == sel;
+        }
+        chipBar.ResumeLayout();
+    }
+
+    void SelectCard(IntPtr h)
+    {
+        foreach (ListViewItem it in list.Items) if ((IntPtr)it.Tag == h) { it.Selected = true; it.EnsureVisible(); }
+    }
+
+    // 칩 오른쪽 단추: 이 카드 닫기
+    void ChipMenu(IntPtr h, Control at, Point p)
+    {
+        var m = new ContextMenuStrip { Font = uiFont };
+        m.Items.Add("이 카드 닫기", null, (s, e) => Native.PostMessage(h, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero));
+        m.Show(at, p);
+    }
+
+    // [목록]: 옆에서 밀려 나오고 들어간다
+    void SlideList(bool show)
+    {
+        if (split == null) return;
+        int target = Math.Max(200, Math.Min(listWidth, split.Width - split.Panel2MinSize - split.SplitterWidth));
+        listToggle.Selected = show;
+        laying = true;
+        split.Panel1MinSize = 0;
+        if (show)
+        {
+            split.Panel1Collapsed = false;
+            split.SplitterDistance = 1;
+        }
+        laying = false;
+        slideTarget = show ? target : 0;
+        slide.Start();
+    }
+
+    void SlideStep()
+    {
+        laying = true;
+        try
+        {
+            int d = split.SplitterDistance;
+            int step = Math.Max(12, Math.Abs(slideTarget - d) / 3);
+            int next = slideTarget > d ? Math.Min(slideTarget, d + step) : Math.Max(slideTarget, d - step);
+            if (next <= 0) { split.Panel1Collapsed = true; Finish(); return; }
+            split.SplitterDistance = next;
+            if (next == slideTarget) Finish();
+        }
+        catch { Finish(); }
+        finally { laying = false; }
+    }
+
+    void Finish()
+    {
+        slide.Stop();
+        split.Panel1MinSize = 200;
+        laying = false;
+        ApplyLayout();
+    }
+
     void DrawRow(DrawListViewSubItemEventArgs e)
     {
         if (e.ColumnIndex != 0) return;
@@ -903,13 +1014,13 @@ class MainForm : Form
         var st = checkedCards.Contains(h)
             ? System.Windows.Forms.VisualStyles.CheckBoxState.CheckedNormal : System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedNormal;
         CheckBoxRenderer.DrawCheckBox(g, box, st);
+        // 제목만, 두 줄까지(넘치면 … · 마우스를 대면 전체가 풍선말로)
         int x = r.X + 30, w = r.Width - 30 - 10;
-        string title = e.Item.SubItems[0].Text, no = e.Item.SubItems[1].Text, att = e.Item.SubItems[2].Text;
-        if (no == "") no = "문서번호 없음";
-        string sub = no + (att != "" && att != "0" ? "  ·  첨부 " + att : "");
-        var flags = TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
-        TextRenderer.DrawText(g, title, rowTitleFont, new Rectangle(x, r.Y + 6, w, 20), Color.FromArgb(26, 26, 26), flags);
-        TextRenderer.DrawText(g, sub, rowSubFont, new Rectangle(x, r.Y + 26, w, 18), Sub, flags);
+        string title = e.Item.SubItems[0].Text, state = e.Item.SubItems[1].Text;
+        bool waiting = state == "읽는 중" || state == "못 읽음";
+        var flags = TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.TextBoxControl;
+        TextRenderer.DrawText(g, waiting && title.Trim() == "" ? state : title, rowTitleFont, new Rectangle(x, r.Y + 7, w, r.Height - 12),
+            waiting ? Sub : Color.FromArgb(26, 26, 26), flags | TextFormatFlags.VerticalCenter);
     }
 
     void FitColumns()
@@ -1031,7 +1142,7 @@ class MainForm : Form
     // 카드 칸과 첨부 칸 자리 바꾸기
     void PlacePanels(bool swap)
     {
-        Control first = swap ? (Control)side : cardHost, second = swap ? (Control)cardHost : side;
+        Control first = swap ? (Control)side : cardArea, second = swap ? (Control)cardArea : side;
         if (first.Parent == inner.Panel1) return;
         inner.Panel1.Controls.Remove(second);
         inner.Panel2.Controls.Remove(first);
@@ -1068,6 +1179,14 @@ class MainForm : Form
         settingsMenu.Items.Add(item("카드 앱 안에", embed.Checked, (s, e) => embed.Checked = !embed.Checked));
         settingsMenu.Items.Add(item("카드 열면 결재정보 먼저", propertyFirst, (s, e) => { propertyFirst = !propertyFirst; SaveSettings(); }));
         settingsMenu.Items.Add(item("항상 위", onTop.Checked, (s, e) => onTop.Checked = !onTop.Checked));
+        settingsMenu.Items.Add(item("카드를 위쪽 칩으로", listStyle == "chips", (s, e) =>
+        {
+            listStyle = listStyle == "chips" ? "list" : "chips";
+            listShown = null;
+            ApplyLayout();
+            RefreshChips();
+            SaveSettings();
+        }));
         settingsMenu.Items.Add(new ToolStripSeparator());
         var lay = new ToolStripMenuItem("배열");
         foreach (var kv in new[] {
@@ -1449,6 +1568,7 @@ class MainForm : Form
                 if (k == "listWidth" && int.TryParse(v, out iv)) listWidth = Math.Max(200, Math.Min(600, iv));
                 if (k == "listShown") listShown = v == "1" ? true : v == "0" ? (bool?)false : null;
                 if (k == "sideTab") sideTab = v == "info" ? "info" : "view";
+                if (k == "listStyle") { listStyle = v == "list" ? "list" : "chips"; sawListStyle = true; }
                 if (k == "max") savedMax = v == "1";
                 if (k == "bounds")
                 {
@@ -1458,6 +1578,7 @@ class MainForm : Form
                         savedBounds = new Rectangle(bx, by, bw, bh);
                 }
             }
+            if (!sawListStyle) listShown = null;
         }
         catch { }
     }
@@ -1496,6 +1617,7 @@ class MainForm : Form
                 "listWidth=" + listWidth,
                 "listShown=" + (listShown == null ? "auto" : listShown.Value ? "1" : "0"),
                 "sideTab=" + sideTab,
+                "listStyle=" + listStyle,
                 "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0"),
                 "bounds=" + NormalBounds() }, Encoding.UTF8);
         }

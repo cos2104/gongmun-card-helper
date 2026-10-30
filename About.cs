@@ -12,8 +12,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("공문 카드 도우미")]
 [assembly: AssemblyCompany("전남온라인학교 김우주")]
 [assembly: AssemblyCopyright("전남온라인학교 김우주")]
-[assembly: AssemblyVersion("1.0.3.0")]
-[assembly: AssemblyFileVersion("1.0.3.0")]
+[assembly: AssemblyVersion("1.0.4.0")]
+[assembly: AssemblyFileVersion("1.0.4.0")]
 
 static class AppInfo
 {
