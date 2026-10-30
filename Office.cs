@@ -193,6 +193,56 @@ static class MsOffice
         else throw new Exception("오피스 문서 아님");
     }
 
+    public static bool IsPpt(string ext) { return Ppt.Contains(ext.ToLowerInvariant()); }
+
+    // 파워포인트는 PDF 로 저장하면 숨겨 둬도 '게시 중…' 진행 창이 화면에 뜬다(10-30) → 슬라이드마다 그림으로 바로 받는다
+    public static List<string> SlidesToPng(string path, string outDir, int width)
+    {
+        string mark = Path.Combine(outDir, "done"), stamp = File.GetLastWriteTimeUtc(path).Ticks.ToString();
+        bool done = false;
+        try { done = File.ReadAllText(mark) == stamp; } catch { }
+        if (!done)
+        {
+            Directory.CreateDirectory(outDir);
+            foreach (var f in Directory.GetFiles(outDir, "*.png")) try { File.Delete(f); } catch { }
+            string err = null;
+            var th = new Thread(() =>
+            {
+                try { ExportSlides(path, outDir, width); }
+                catch (Exception ex) { err = (ex.InnerException ?? ex).Message; }
+            });
+            th.SetApartmentState(ApartmentState.STA);
+            th.IsBackground = true;
+            th.Start();
+            if (!th.Join(90000)) throw new Exception("시간 초과");
+            if (err != null) throw new Exception(err);
+            File.WriteAllText(mark, stamp);
+        }
+        var files = new List<string>(Directory.GetFiles(outDir, "*.png"));
+        files.Sort(StringComparer.Ordinal);
+        return files;
+    }
+
+    static void ExportSlides(string path, string outDir, int width)
+    {
+        bool before = Running("POWERPNT");
+        dynamic app = Activator.CreateInstance(Type.GetTypeFromProgID("PowerPoint.Application"));
+        try
+        {
+            dynamic p = app.Presentations.Open(path, -1, 0, 0);   // 읽기 전용 · 창 없이
+            try
+            {
+                float w = p.PageSetup.SlideWidth, h = p.PageSetup.SlideHeight;
+                int height = (int)Math.Round(width * h / w);
+                int n = Math.Min(60, (int)p.Slides.Count);
+                for (int i = 1; i <= n; i++)
+                    p.Slides.Item(i).Export(Path.Combine(outDir, "p" + i.ToString("000") + ".png"), "PNG", width, height);
+            }
+            finally { p.Close(); }
+        }
+        finally { if (!before && app.Presentations.Count == 0) try { app.Quit(); } catch { } Marshal.FinalReleaseComObject((object)app); }
+    }
+
     // 고치기: 깔린 프로그램으로 열고 그 창을 rect(화면 좌표) 자리에 둔다
     // 다른 자리에 떴다가 옮겨지면 번쩍이므로, 숨긴 채 자리부터 잡고 보인다
     public static void OpenBeside(string path, Rectangle rect)

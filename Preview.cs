@@ -529,6 +529,7 @@ class PreviewPane : Panel
 
     static List<string> RenderWin(string path, string ext, string outDir)
     {
+        if (MsOffice.IsPpt(ext)) return MsOffice.SlidesToPng(path, outDir, 1400);
         string pdf = path;
         if (ext != ".pdf")
         {

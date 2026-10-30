@@ -238,9 +238,12 @@ static class CardPage
 
     // 본문 원문을 카드 안 한글 컨트롤에서 HWP 로 받는다.
     // SaveAs 는 컨트롤이 저장한 파일을 계속 잡고 있어서, 문서를 base64 글자로 받는 GetTextFile('HWP') 를 쓴다
+    // **GetTextFile('HWP') 는 IsModified 를 0→1 로 바꾼다** → 결재 때 카드가 '본문 고쳐짐'으로 보고 문서처리(수정구분) 창을 띄웠다(10-30).
+    // 카드의 SaveToHWP 처럼 IsModified·EditMode 를 기억했다가 되돌린다
     public static void SaveBody(IntPtr hwnd, string path)
     {
-        string b64 = Eval(hwnd, "document.getElementById('editor1').contentWindow.document.getElementById('editor1').GetTextFile('HWP','')", 30000);
+        string b64 = Eval(hwnd, "(function(){ var h=document.getElementById('editor1').contentWindow.document.getElementById('editor1');"
+            + " var d=h.IsModified, m=h.EditMode; try { return h.GetTextFile('HWP',''); } finally { try { if(h.EditMode!=m) h.EditMode=m; h.IsModified=d; } catch(x) {} } })()", 30000);
         byte[] bytes;
         try { bytes = Convert.FromBase64String(b64); } catch { throw new Exception("본문 저장 실패"); }
         if (bytes.Length < 512) throw new Exception("본문 저장 실패");
