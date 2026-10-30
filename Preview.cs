@@ -3,7 +3,7 @@
 //  - hwpx     : 그 컨트롤이 못 열어서, 숨긴 한글(HWPFrame.HwpObject)로 hwp 로 바꿔 연다
 //  - pdf·워드·엑셀·파워포인트 : 이음오피스 명령줄 도구로 쪽마다 그림을 만들어 보여 준다
 //  - [편집] : 한글은 위 한글 컨트롤에 도구 막대를 띄워 고치고, 나머지는 이음오피스 창을 이 칸에 끼워 넣어 고친다
-//  - 한글 2022 가 깔려 있으면 본문·hwp·hwpx 는 그 창(따로 띄운 자동화용)을 이 칸에 끼워 넣어 보인다.
+//  - 한글(2014 · NEO · 2018 · 2020 · 2022 · 2024 등 깔린 판 무엇이든)이 있으면 본문·hwp·hwpx 는 그 창(따로 띄운 자동화용)을 이 칸에 끼워 넣어 보인다.
 //    2018 컨트롤은 2022 글꼴을 못 찾고, 새 판으로 만든 표를 통째로 못 그리는 일이 있다(강사카드 서식에서 확인)
 using System;
 using System.Collections.Generic;
@@ -200,6 +200,7 @@ class PreviewPane : Panel
     readonly Panel ieumHost = new Panel { BackColor = Color.White };
     readonly Panel hwpHost = new Panel { BackColor = Color.White };
     readonly HwpApp hwp22 = new HwpApp();
+    bool hwpBroken;
     readonly UiButton editBtn;
     readonly UiButton saveBtn;
     IntPtr ieumWnd;
@@ -454,7 +455,7 @@ class PreviewPane : Panel
 
     void OpenHwp(string path)
     {
-        if (HwpApp.Available)
+        if (HwpApp.Available && !hwpBroken)
         {
             Mode(hwpHost);
             if (!hwp22.Alive) { Status("한글 여는 중…"); Refresh(); }
@@ -463,9 +464,15 @@ class PreviewPane : Panel
                 hwp22.Ensure(hwpHost);
                 if (!hwp22.Open(path, editing)) Say("한글로 못 엶\n\n[앱으로 열기]");
                 else Status("");
+                return;
             }
-            catch (Exception ex) { Ieum.Log("한글 2022 : " + ex.Message); Say("한글로 못 엶 : " + ex.Message + "\n\n[앱으로 열기]"); }
-            return;
+            catch (Exception ex)
+            {
+                // 오래된 판 등에서 창 끼워 넣기가 안 되면 이번 실행 동안은 카드의 한글 부품으로 연다
+                Ieum.Log("한글 : " + ex.Message + " → 카드 한글 부품으로");
+                hwpBroken = true;
+                hwp22.Quit();
+            }
         }
         Mode(hwpView);
         bool ok = false;
@@ -632,7 +639,8 @@ class PreviewPane : Panel
     }
 }
 
-// 이 칸 전용으로 띄운 한글 2022(선생님이 쓰는 한글 창과는 따로 도는 자동화용 프로세스)
+// 이 칸 전용으로 띄운 한글(깔린 판 그대로. 선생님이 쓰는 한글 창과는 따로 도는 자동화용 프로세스)
+// HWPFrame.HwpObject 는 판 번호 없는 이름이라 어느 판이든 그 PC 에 등록된 한글이 뜬다
 class HwpApp
 {
     dynamic hwp;
