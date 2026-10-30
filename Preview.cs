@@ -264,6 +264,7 @@ class PreviewPane : Panel
     readonly HwpView hwpView = new HwpView();
     readonly PageView pageView = new PageView();
     readonly Panel ieumHost = new Panel { BackColor = Color.White };
+    readonly Panel officeHost = new Panel { BackColor = Color.White };
     readonly Panel hwpHost = new Panel { BackColor = Color.White };
     readonly HwpApp hwp22 = new HwpApp();
     bool hwpBroken;
@@ -319,6 +320,8 @@ class PreviewPane : Panel
         pageView.Dock = DockStyle.Fill;
         ieumHost.Dock = DockStyle.Fill;
         ieumHost.Resize += (s, e) => { if (ieumWnd != IntPtr.Zero) CardDock.Fit(ieumWnd, ieumHost); };
+        officeHost.Dock = DockStyle.Fill;
+        officeHost.Resize += (s, e) => { if (officeWnd != IntPtr.Zero) CardDock.Fit(officeWnd, officeHost); };
         note.Dock = DockStyle.Fill;
         note.TextAlign = ContentAlignment.MiddleCenter;
         note.ForeColor = Color.FromArgb(96, 96, 96);
@@ -335,6 +338,7 @@ class PreviewPane : Panel
         Controls.Add(hwpView);
         Controls.Add(pageView);
         Controls.Add(ieumHost);
+        Controls.Add(officeHost);
         hwpHost.Dock = DockStyle.Fill;
         var zoomLater = new System.Windows.Forms.Timer { Interval = 300 };
         zoomLater.Tick += (s, e) => { zoomLater.Stop(); hwp22.ZoomFit(); };
@@ -369,6 +373,7 @@ class PreviewPane : Panel
         hwpView.Visible = c == hwpView;
         pageView.Visible = c == pageView;
         ieumHost.Visible = c == ieumHost;
+        officeHost.Visible = c == officeHost;
         hwpHost.Visible = c == hwpHost;
         note.Visible = c == note;
         ieumGet.Visible = c == note && !Ieum.Installed && note.Text.Contains("이음오피스");
@@ -380,6 +385,7 @@ class PreviewPane : Panel
     public void ShowCard(CardInfo c, Action<string> status)
     {
         if (!AskSave()) return;
+        CloseOffice();
         card = c;
         currentPath = null;
         if (editing) { editing = false; try { hwpView.SetEditing(false); } catch { } hwp22.SetEdit(false); UpdateEditButtons(); }
@@ -454,6 +460,7 @@ class PreviewPane : Panel
     public void Shutdown()
     {
         AskSave();
+        CloseOffice();
         hwp22.Quit();
     }
 
@@ -473,6 +480,7 @@ class PreviewPane : Panel
     void ShowFile(string path, Button b)
     {
         if (!AskSave()) return;
+        CloseOffice();
         Mark(b);
         currentPath = path;
         currentName = b != null && b.Tag is string ? NameFor(b) : Path.GetFileName(path);
@@ -708,27 +716,47 @@ class PreviewPane : Panel
         }
     }
 
-    // 깔린 엑셀·워드·파워포인트로 열고 그 창을 이 칸 자리에 둔다(끼워 넣지는 않음)
+    // 깔린 엑셀·워드·파워포인트로 열고 그 창을 이 칸에 끼워 넣는다(한글처럼 칸 안에서 고침)
     void OpenInOffice(string path)
     {
         string app = MsOffice.AppName(Path.GetExtension(path));
-        var rect = RectangleToScreen(new Rectangle(0, note.Top, ClientSize.Width, ClientSize.Height - note.Top));
+        CloseOffice();
         Say(app + "로 여는 중…");
         int seq = showSeq;
         ThreadPool.QueueUserWorkItem(_ =>
         {
             string err = null;
-            try { MsOffice.OpenBeside(path, rect); } catch (Exception ex) { err = ex.Message; Ieum.Log(app + " 편집 : " + ex.Message); }
+            IntPtr h = IntPtr.Zero;
+            try { h = MsOffice.OpenForDock(path); } catch (Exception ex) { err = ex.Message; Ieum.Log(app + " 편집 : " + ex.Message); }
             try
             {
                 BeginInvoke((Action)(() =>
                 {
-                    if (seq != showSeq) return;
-                    Say(err == null ? app + "에서 편집 중" : "편집 못 함 : " + err + "\n\n[앱으로 열기]");
+                    if (err != null) { if (seq == showSeq) Say("편집 못 함 : " + err + "\n\n[앱으로 열기]"); return; }
+                    officeWnd = h;
+                    Mode(officeHost);
+                    CardDock.Dock(h, officeHost, false, true);
+                    if (seq != showSeq) { CloseOffice(); return; }   // 그 사이 다른 파일로 넘어갔으면 닫는다
+                    Status(app + "에서 저장하면 카드 첨부에 반영");
                 }));
             }
             catch { }
         });
+    }
+
+    IntPtr officeWnd;
+
+    // 끼워 둔 오피스 창을 닫는다. 먼저 그 자리에 그대로 꺼낸 뒤 닫는다
+    // (끼운 채 닫으면 오피스가 끝나는 동안 앱도 같이 멈췄다). 고친 게 있으면 오피스가 그 자리에서 저장을 묻는다
+    void CloseOffice()
+    {
+        IntPtr h = officeWnd;
+        if (h == IntPtr.Zero) return;
+        officeWnd = IntPtr.Zero;
+        if (!Native.IsWindow(h)) { CardDock.Forget(h); return; }
+        CardDock.Undock(h, officeHost.RectangleToScreen(officeHost.ClientRectangle));
+        Native.SetForegroundWindow(h);
+        Native.PostMessage(h, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
     }
 
     // 이음오피스로 파일을 열고, 그 창을 이 칸에 끼워 넣는다(이미 있으면 탭만 하나 늘어난다)

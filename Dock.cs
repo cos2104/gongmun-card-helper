@@ -29,7 +29,7 @@ static class CardDock
     const int WS_MAXIMIZEBOX = 0x00010000;
     const uint SWP_FRAMECHANGED = 0x0020, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040;
 
-    class Saved { public int Style; public Rectangle Rect; public bool Card; }
+    class Saved { public int Style; public Rectangle Rect; public bool Card, Max; }
     static readonly Dictionary<IntPtr, Saved> saved = new Dictionary<IntPtr, Saved>();
 
     public static bool IsDocked(IntPtr h) { return saved.ContainsKey(h); }
@@ -39,17 +39,20 @@ static class CardDock
     // card=false 면 공문 카드가 아닌 창(이음오피스): 첨부 가로채기를 걸지 않는다
     public static void Dock(IntPtr h, Control host) { Dock(h, host, true); }
 
-    public static void Dock(IntPtr h, Control host, bool card)
+    // parentFirst: 먼저 옮기고 나서 모양을 바꾼다. MS 오피스 창은 모양(WS_CHILD)부터 바꾸면 SetParent 가 66초 멈췄다가 거부한다(10-30)
+    public static void Dock(IntPtr h, Control host, bool card) { Dock(h, host, card, false); }
+
+    public static void Dock(IntPtr h, Control host, bool card, bool parentFirst)
     {
         if (saved.ContainsKey(h) || !Native.IsWindow(h)) return;
         if (IsZoomed(h) || IsIconic(h)) ShowWindow(h, 9);
         RECT r;
         GetWindowRect(h, out r);
         int style = GetWindowLong(h, GWL_STYLE);
-        saved[h] = new Saved { Style = style, Rect = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), Card = card };
+        saved[h] = new Saved { Style = style, Rect = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), Card = card, Max = parentFirst };
         int child = (style & ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_CHILD;
-        SetWindowLong(h, GWL_STYLE, child);
-        SetParent(h, host.Handle);
+        if (parentFirst) { SetParent(h, host.Handle); SetWindowLong(h, GWL_STYLE, child); }
+        else { SetWindowLong(h, GWL_STYLE, child); SetParent(h, host.Handle); }
         Fit(h, host);
         if (!card) return;
         // 가로채기는 첨부 확인(0.7초마다) 때도 다시 걸리므로 여기서는 기다리지 않는다
@@ -60,6 +63,19 @@ static class CardDock
     public static void Fit(IntPtr h, Control host)
     {
         if (!saved.ContainsKey(h)) return;
+        // 오피스 창은 크기 맞추기를 무시하고 제 크기를 지킨다 → 칸 안에서 최대화(칸이 바뀌면 다시)
+        if (saved[h].Max)
+        {
+            if (IsZoomed(h))
+            {
+                RECT z;
+                GetWindowRect(h, out z);
+                if (z.Right - z.Left == host.ClientSize.Width && z.Bottom - z.Top == host.ClientSize.Height) return;
+                ShowWindow(h, 9);
+            }
+            ShowWindow(h, 3);
+            return;
+        }
         SetWindowPos(h, IntPtr.Zero, 0, 0, host.ClientSize.Width, host.ClientSize.Height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
         // 칸이 움직이면 카드(다른 프로그램)가 스스로 다시 안 그릴 때가 있다
         RedrawWindow(h, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0400 | 0x0100); // INVALIDATE|ERASE|ALLCHILDREN|FRAME|UPDATENOW
@@ -107,6 +123,19 @@ static class CardDock
     }
 
     public static void Forget(IntPtr h) { saved.Remove(h); }
+
+    // 끼운 창을 지금 보이는 그 자리(화면 좌표)에 그대로 꺼낸다(오피스 창을 닫기 전에: 닫히는 중인 창을 건드리면 1분 멈춘다)
+    public static void Undock(IntPtr h, Rectangle at)
+    {
+        Saved s;
+        if (!saved.TryGetValue(h, out s)) return;
+        saved.Remove(h);
+        if (!Native.IsWindow(h)) return;
+        if (s.Max) ShowWindow(h, 9);
+        SetParent(h, IntPtr.Zero);
+        SetWindowLong(h, GWL_STYLE, s.Style);
+        SetWindowPos(h, IntPtr.Zero, at.X, at.Y, at.Width, at.Height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
 
     const string HookOn = @"(function(){ if(!window.__ccExec && window.FileManager){ window.__ccExec=FileManager.ExecFile;
  FileManager.ExecFile=function(src){ var e=document.documentElement; e.setAttribute('data-cc-open',(e.getAttribute('data-cc-open')||'')+src+String.fromCharCode(30)); }; }

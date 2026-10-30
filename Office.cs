@@ -243,15 +243,15 @@ static class MsOffice
         finally { if (!before && app.Presentations.Count == 0) try { app.Quit(); } catch { } Marshal.FinalReleaseComObject((object)app); }
     }
 
-    // 고치기: 깔린 프로그램으로 열고 그 창을 rect(화면 좌표) 자리에 둔다
-    // 다른 자리에 떴다가 옮겨지면 번쩍이므로, 숨긴 채 자리부터 잡고 보인다
-    public static void OpenBeside(string path, Rectangle rect)
+    // 고치기: 깔린 프로그램으로 열고 그 창 핸들을 준다(앱이 오른쪽 칸에 끼워 넣는다).
+    // 화면에 잠깐 비치지 않게 화면 밖에 둔 채 보이게 한다. COM 은 따로 스레드에서 쓰고 놓는다(끼우는 동안 서로 기다리지 않게)
+    public static IntPtr OpenForDock(string path)
     {
         string err = null;
         IntPtr h = IntPtr.Zero;
         var th = new Thread(() =>
         {
-            try { h = OpenVisible(path, rect); }
+            try { h = OpenVisible(path, new Rectangle(-12000, -12000, 900, 700)); }
             catch (Exception ex) { err = (ex.InnerException ?? ex).Message; }
         });
         th.SetApartmentState(ApartmentState.STA);
@@ -259,16 +259,14 @@ static class MsOffice
         th.Start();
         if (!th.Join(60000)) throw new Exception("시간 초과");
         if (err != null) throw new Exception(err);
-        if (h == IntPtr.Zero) return;
-        if (Native.IsIconic(h)) Native.ShowWindow(h, 9);   // SW_RESTORE
-        Place(h, rect);
-        Native.SetForegroundWindow(h);
+        if (h == IntPtr.Zero) throw new Exception(AppName(Path.GetExtension(path)) + " 창을 못 찾음");
+        return h;
     }
 
     [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hgt, bool repaint);
     [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr h);
 
-    static void Place(IntPtr h, Rectangle r)
+    public static void Place(IntPtr h, Rectangle r)
     {
         if (IsZoomed(h)) Native.ShowWindow(h, 9);
         MoveWindow(h, r.X, r.Y, r.Width, r.Height, true);
