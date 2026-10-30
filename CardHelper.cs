@@ -272,8 +272,11 @@ static class Ieum
     static readonly string Exe = Path.Combine(Dir, "IeumOffice.exe");
     static readonly string Cli = Path.Combine(Dir, "resources", "cli", "genoffice.cjs");
 
+    // 기본은 깔린 MS 오피스. 이음오피스는 [설정 ▾] '이음오피스 쓰기' 를 켰을 때만(선생님 10-30)
+    public static bool Enabled;
     // GONGMUN_NO_IEUM=1 : 이음오피스가 없는 PC 처럼 시험
-    public static bool Available { get { return Environment.GetEnvironmentVariable("GONGMUN_NO_IEUM") != "1" && File.Exists(Exe) && File.Exists(Cli); } }
+    public static bool Installed { get { return Environment.GetEnvironmentVariable("GONGMUN_NO_IEUM") != "1" && File.Exists(Exe) && File.Exists(Cli); } }
+    public static bool Available { get { return Enabled && Installed; } }
 
     // 쪽마다 PNG 를 만들고 그 경로들을 쪽 순서대로 준다(이미 만든 게 있으면 그대로)
     public static List<string> Render(string path, string outDir)
@@ -1204,11 +1207,9 @@ class MainForm : Form
         settingsMenu.Items.Add(new ToolStripSeparator());
         settingsMenu.Items.Add(item("아이콘 바꾸기…", false, (s, e) => PickIcon()));
         if (iconPath != "") settingsMenu.Items.Add(item("아이콘 처음대로", false, (s, e) => { iconPath = ""; ApplyIcon(); SaveSettings(); }));
-        if (!Ieum.Available)
-        {
-            settingsMenu.Items.Add(new ToolStripSeparator());
-            settingsMenu.Items.Add(item("이음오피스 받기", false, (s, e) => Ieum.OpenDownloadPage()));
-        }
+        settingsMenu.Items.Add(new ToolStripSeparator());
+        if (Ieum.Installed) settingsMenu.Items.Add(item("이음오피스 쓰기", Ieum.Enabled, (s, e) => { Ieum.Enabled = !Ieum.Enabled; SaveSettings(); }));
+        else settingsMenu.Items.Add(item("이음오피스 받기", false, (s, e) => Ieum.OpenDownloadPage()));
         settingsMenu.Items.Add(new ToolStripSeparator());
         settingsMenu.Items.Add(item("업데이트 확인", false, (s, e) => CheckUpdate(true)));
         settingsMenu.Items.Add(item("처음 쓰는 법", false, (s, e) => { using (var w = new WelcomeForm()) w.ShowDialog(this); }));
@@ -1560,6 +1561,7 @@ class MainForm : Form
                 if (k == "withBody") withBody.Checked = v == "1";
                 if (k == "embed") embed.Checked = v == "1";
                 if (k == "propertyFirst") propertyFirst = v == "1";
+                if (k == "ieum") Ieum.Enabled = v == "1";
                 if (k == "welcomed") welcomed = v == "1";
                 if (k == "layout" && v != "") layoutMode = v;
                 if (k == "icon") iconPath = v;
@@ -1610,6 +1612,7 @@ class MainForm : Form
                 "withBody=" + (withBody.Checked ? "1" : "0"),
                 "embed=" + (embed.Checked ? "1" : "0"),
                 "propertyFirst=" + (propertyFirst ? "1" : "0"),
+                "ieum=" + (Ieum.Enabled ? "1" : "0"),
                 "welcomed=" + (welcomed ? "1" : "0"),
                 "layout=" + layoutMode,
                 "icon=" + iconPath,

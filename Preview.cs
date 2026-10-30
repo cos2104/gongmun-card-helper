@@ -300,7 +300,7 @@ class PreviewPane : Panel
         ieumHost.Visible = c == ieumHost;
         hwpHost.Visible = c == hwpHost;
         note.Visible = c == note;
-        ieumGet.Visible = c == note && !Ieum.Available && note.Text.Contains("이음오피스");
+        ieumGet.Visible = c == note && !Ieum.Installed && note.Text.Contains("이음오피스");
     }
 
     void Say(string text) { note.Text = text; Mode(note); }
