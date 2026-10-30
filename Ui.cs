@@ -1,4 +1,4 @@
-// 윈도 11 느낌의 화면 조각들
+﻿// 윈도 11 느낌의 화면 조각들
 //  - UiButton : 둥근 단추. 기본 · 강조(파랑) · 고름(옅은 파랑 + 아래 막대)
 //  - SegTabs  : UiButton 으로 만든 탭(옛 TabControl 대신)
 //  - Win11    : 창 모서리 둥글게 · 제목줄 색을 앱 바탕과 맞춤
@@ -42,6 +42,7 @@ class SegTabs : Panel
     readonly Panel body = new Panel { Dock = DockStyle.Fill };
     readonly Dictionary<Control, UiButton> buttons = new Dictionary<Control, UiButton>();
     public Control Selected { get; private set; }
+    public event Action<Control> Changed;
 
     public SegTabs()
     {
@@ -65,7 +66,9 @@ class SegTabs : Panel
 
     public void Select(Control page)
     {
+        bool changed = Selected != null && Selected != page;
         Selected = page;
+        if (changed && Changed != null) Changed(page);
         foreach (var kv in buttons)
         {
             kv.Value.Selected = kv.Key == page;

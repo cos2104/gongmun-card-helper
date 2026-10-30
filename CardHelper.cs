@@ -394,6 +394,9 @@ class MainForm : Form
     int listWidth = 290;
     bool? listShown;            // null 이면 창 너비에 따라 저절로
     bool laying;
+    bool draggingInner, draggingSplit;   // 사람이 칸 경계를 끄는 중(놓을 때 마우스 단추가 이미 떨어져 있어 따로 표시한다)
+    string sideTab = "view";
+    readonly System.Windows.Forms.Timer saveSoon = new System.Windows.Forms.Timer { Interval = 800 };
     // 카드 창이 뜨는 순간을 윈도에게서 바로 듣는다(2초마다 찾기보다 빠르게 앱 안으로)
     delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time);
     [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
@@ -434,7 +437,7 @@ class MainForm : Form
         // 위쪽: 목록 접기 · 찾기 · 다시 읽기 · 카드 앱 안에 · 항상 위
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(10, 9, 10, 0), BackColor = Bg, WrapContents = false };
         listToggle.Text = "목록";
-        listToggle.Click += (s, e) => { listShown = split != null && split.Panel1Collapsed; ApplyLayout(); };
+        listToggle.Click += (s, e) => { listShown = split != null && split.Panel1Collapsed; ApplyLayout(); SaveSoon(); };
         search.Width = 260;
         search.Margin = new Padding(6, 4, 10, 0);
         SetCue(search, "제목·문서번호 찾기");
@@ -598,6 +601,7 @@ class MainForm : Form
         side.BackColor = Bg;
         side.Add("첨부 보기", sideView);
         side.Add("정보", sideInfo);
+        side.Changed += p => { sideTab = p == sideInfo ? "info" : "view"; SaveSoon(); };
 
         inner = new SplitContainer { Size = new Size(1200, 800), BackColor = Bg, SplitterWidth = 6 };
         inner.Panel1MinSize = 200;
@@ -606,9 +610,12 @@ class MainForm : Form
         inner.Dock = DockStyle.Fill;
         inner.Panel2.Padding = new Padding(0, 0, 10, 0);
         // 사람이 칸 경계를 옮기면 그 비율을 기억한다
+        inner.SplitterMoving += (s, e) => { if (!laying) draggingInner = true; };
         inner.SplitterMoved += (s, e) =>
         {
-            if (laying || Control.MouseButtons != MouseButtons.Left) return;   // 사람이 끌어 옮긴 것만 기억
+            if (laying || !draggingInner) return;   // 사람이 끌어 옮긴 것만 기억
+            draggingInner = false;
+            SaveSoon();
             double whole = inner.Orientation == Orientation.Vertical ? inner.Width : inner.Height;
             if (whole <= 0) return;
             double r = inner.SplitterDistance / whole;
@@ -625,7 +632,14 @@ class MainForm : Form
         split.Dock = DockStyle.Fill;
         split.FixedPanel = FixedPanel.Panel1;
         split.Panel1.Padding = new Padding(10, 0, 0, 0);
-        split.SplitterMoved += (s, e) => { if (!laying && !split.Panel1Collapsed && Control.MouseButtons == MouseButtons.Left) listWidth = split.SplitterDistance; };
+        split.SplitterMoving += (s, e) => { if (!laying) draggingSplit = true; };
+        split.SplitterMoved += (s, e) =>
+        {
+            if (laying || !draggingSplit || split.Panel1Collapsed) return;
+            draggingSplit = false;
+            listWidth = split.SplitterDistance;
+            SaveSoon();
+        };
         split.Panel1.Controls.Add(left);
         split.Panel2.Controls.Add(inner);
 
@@ -650,7 +664,9 @@ class MainForm : Form
         FormClosing += (s, e) => { if (showHook != IntPtr.Zero) UnhookWinEvent(showHook); SaveSettings(); pane.Shutdown(); if (updating) CardDock.ReleaseAll(); else CardDock.CloseAll(IsWritingCard); };
         showProc = OnWindowShown;
         showHook = SetWinEventHook(0x8002, 0x8002, IntPtr.Zero, showProc, 0, 0, 0);   // EVENT_OBJECT_SHOW, OUTOFCONTEXT
-        Resize += (s, e) => ApplyLayout();
+        Resize += (s, e) => { ApplyLayout(); SaveSoon(); };
+        Move += (s, e) => SaveSoon();
+        saveSoon.Tick += (s, e) => { saveSoon.Stop(); SaveSettings(); };
         if (savedBounds.Width > 0 && Screen.AllScreens.Any(sc => sc.WorkingArea.IntersectsWith(savedBounds)))
         {
             StartPosition = FormStartPosition.Manual;
@@ -662,6 +678,7 @@ class MainForm : Form
             ApplyLayout();
             EmbedChanged();
             RefreshList();
+            if (sideTab == "info") side.Select(sideInfo);
             Updater.Cleanup();
             if (!welcomed) { welcomed = true; SaveSettings(); using (var w = new WelcomeForm()) w.ShowDialog(this); }
             CheckUpdate(false);
@@ -1416,6 +1433,8 @@ class MainForm : Form
                 double dv; int iv;
                 if (k == "ratio" && double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out dv)) innerRatio = Math.Max(0.2, Math.Min(0.8, dv));
                 if (k == "listWidth" && int.TryParse(v, out iv)) listWidth = Math.Max(200, Math.Min(600, iv));
+                if (k == "listShown") listShown = v == "1" ? true : v == "0" ? (bool?)false : null;
+                if (k == "sideTab") sideTab = v == "info" ? "info" : "view";
                 if (k == "max") savedMax = v == "1";
                 if (k == "bounds")
                 {
@@ -1427,6 +1446,14 @@ class MainForm : Form
             }
         }
         catch { }
+    }
+
+    // 바꾸는 즉시 저장하면 끌 때마다 파일을 쓰니, 멈추고 0.8초 뒤 한 번
+    void SaveSoon()
+    {
+        if (laying || !IsHandleCreated) return;
+        saveSoon.Stop();
+        saveSoon.Start();
     }
 
     string NormalBounds()
@@ -1453,6 +1480,8 @@ class MainForm : Form
                 "cardNeed=" + cardNeed,
                 "ratio=" + innerRatio.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture),
                 "listWidth=" + listWidth,
+                "listShown=" + (listShown == null ? "auto" : listShown.Value ? "1" : "0"),
+                "sideTab=" + sideTab,
                 "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0"),
                 "bounds=" + NormalBounds() }, Encoding.UTF8);
         }
