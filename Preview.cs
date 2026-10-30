@@ -207,6 +207,9 @@ class PreviewPane : Panel
     bool editing;
     Button currentTab;
     string currentName = "";   // 저장할 때 쓸 원래 파일 이름
+    // 카드가 연 첨부(가로챈 경로) → 기안 작성 카드에서 연 것인가.
+    // 카드는 그 파일의 고친 시각을 보고 고친 첨부를 올리므로 [저장]은 그 파일에 덮어쓴다
+    readonly Dictionary<string, bool> external = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
     public string SaveFolder = "";
     public Action<string> Status = t => { };
@@ -387,8 +390,9 @@ class PreviewPane : Panel
     }
 
     // 카드에서 첨부를 열었을 때: 같은 파일 단추가 있으면 그걸, 없으면 새 단추를 만들어 보여 준다
-    public void ShowExternal(string path)
+    public void ShowExternal(string path, bool writing)
     {
+        external[path] = writing;
         string name = Path.GetFileName(path);
         foreach (var t in tabButtons)
         {
@@ -558,10 +562,31 @@ class PreviewPane : Panel
         if (currentPath == null) return;
         string folder = SaveFolder;
         if (string.IsNullOrEmpty(folder)) { Status("저장 폴더를 정하세요"); return; }
+        bool inPlace = external.ContainsKey(currentPath);
+        bool toFolder = !inPlace || !external[currentPath];
         try
         {
             Directory.CreateDirectory(folder);
-            if (Hwp22Shown)
+            if (inPlace && (Hwp22Shown || hwpView.Visible))
+            {
+                // 카드가 연 그 파일에 덮어쓴다 → 기안 카드가 고친 첨부를 올린다
+                if (Hwp22Shown) hwp22.SaveAs(currentPath);
+                else WriteHwp(hwpView.HwpBytes(), currentPath);
+                string copied = "";
+                if (toFolder)
+                {
+                    string target = Unique(Path.Combine(folder, SafeName(currentName)));
+                    File.Copy(currentPath, target);
+                    copied = " · " + Path.GetFileName(target);
+                }
+                Status("카드 첨부에 저장" + copied);
+            }
+            else if (inPlace && !toFolder)
+            {
+                // 오피스·이음오피스는 그 프로그램에서 저장하면 카드가 연 파일이 바로 바뀐다
+                Status((Ieum.Available ? "이음오피스" : MsOffice.AppName(Path.GetExtension(currentPath))) + "에서 저장하면 카드 첨부에 반영");
+            }
+            else if (Hwp22Shown)
             {
                 string target = Unique(Path.Combine(folder, SafeName(currentName)));
                 hwp22.SaveAs(target);
@@ -569,18 +594,8 @@ class PreviewPane : Panel
             }
             else if (hwpView.Visible)
             {
-                byte[] bytes = hwpView.HwpBytes();
-                string name = currentName;
-                bool toHwpx = name.EndsWith(".hwpx", StringComparison.OrdinalIgnoreCase);
-                string target = Unique(Path.Combine(folder, SafeName(name)));
-                if (toHwpx)
-                {
-                    string tmp = Path.Combine(Path.GetTempPath(), "공문카드도우미", Guid.NewGuid().ToString("N") + ".hwp");
-                    Directory.CreateDirectory(Path.GetDirectoryName(tmp));
-                    File.WriteAllBytes(tmp, bytes);
-                    try { Hangul.ToHwpx(tmp, target); } finally { try { File.Delete(tmp); } catch { } }
-                }
-                else File.WriteAllBytes(target, bytes);
+                string target = Unique(Path.Combine(folder, SafeName(currentName)));
+                WriteHwp(hwpView.HwpBytes(), target);
                 Status("저장 : " + Path.GetFileName(target));
             }
             else
@@ -592,6 +607,19 @@ class PreviewPane : Panel
             }
         }
         catch (Exception ex) { Status("저장 못 함 : " + ex.Message); }
+    }
+
+    // 2018 한글 부품에서 받은 HWP 를 target 확장자대로(hwpx 면 숨긴 한글로 바꿔) 쓴다
+    static void WriteHwp(byte[] bytes, string target)
+    {
+        if (target.EndsWith(".hwpx", StringComparison.OrdinalIgnoreCase))
+        {
+            string tmp = Path.Combine(Path.GetTempPath(), "공문카드도우미", Guid.NewGuid().ToString("N") + ".hwp");
+            Directory.CreateDirectory(Path.GetDirectoryName(tmp));
+            File.WriteAllBytes(tmp, bytes);
+            try { Hangul.ToHwpx(tmp, target); } finally { try { File.Delete(tmp); } catch { } }
+        }
+        else File.WriteAllBytes(target, bytes);
     }
 
     static string SafeName(string s)
@@ -711,7 +739,7 @@ class HwpApp
 
     public bool Open(string path, bool edit)
     {
-        bool ok = hwp.Open(path, "", "forceopen:true;suspendpassword:true");
+        bool ok = hwp.Open(path, "", "forceopen:true;suspendpassword:true;lock:false");   // 카드 첨부를 붙잡지 않게
         SetEdit(edit);
         try { hwp.Run("ViewZoomFitWidth"); } catch { }
         try { hwp.Run("MoveDocBegin"); } catch { }

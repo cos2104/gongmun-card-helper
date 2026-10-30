@@ -1364,7 +1364,7 @@ class MainForm : Form
                     if (opened == null || opened.Count == 0) return;
                     foreach (var p in opened)
                     {
-                        try { if (p.IndexOfAny(Path.GetInvalidPathChars()) < 0 && File.Exists(p)) { pane.ShowExternal(p); side.Select(sideView); } else Ieum.Log("가로챈 경로 무시 : " + (p.Length > 80 ? p.Substring(0, 80) : p)); }
+                        try { if (p.IndexOfAny(Path.GetInvalidPathChars()) < 0 && File.Exists(p)) { pane.ShowExternal(p, IsWritingCard(h)); side.Select(sideView); } else Ieum.Log("가로챈 경로 무시 : " + (p.Length > 80 ? p.Substring(0, 80) : p)); }
                         catch (Exception ex) { Ieum.Log("첨부 보기 : " + ex.Message); }
                     }
                 }));
